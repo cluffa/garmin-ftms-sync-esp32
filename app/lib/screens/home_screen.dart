@@ -1,7 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/bridge_service.dart';
-import '../models/treadmill_state.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -11,6 +11,13 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _scanning = false;
+  final _hostController = TextEditingController(text: '192.168.4.1');
+
+  @override
+  void dispose() {
+    _hostController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,29 +30,63 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ── Connect screen ──────────────────────────────────────────────────────
+
   Widget _connectView(BridgeService bridge) => Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('No connection', style: TextStyle(fontSize: 18)),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.usb),
-            label: const Text('Connect via USB Serial'),
-            onPressed: () async {
-              final ok = await bridge.connectUsb();
-              if (!ok && mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('No USB device found')));
-              }
-            },
-          ),
-        ]),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Connect to ESP32 bridge',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 24),
+            if (Platform.isAndroid) ...[
+              ElevatedButton.icon(
+                icon: const Icon(Icons.usb),
+                label: const Text('Connect via USB Serial'),
+                onPressed: () async {
+                  final ok = await bridge.connectUsb();
+                  if (!ok && mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('No USB device found')));
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              const Text('— or —', style: TextStyle(color: Colors.grey)),
+              const SizedBox(height: 16),
+            ],
+            TextField(
+              controller: _hostController,
+              decoration: const InputDecoration(
+                labelText: 'ESP32 IP address',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.wifi),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.wifi),
+              label: const Text('Connect via WiFi'),
+              onPressed: () async {
+                final ok = await bridge.connectWifi(_hostController.text.trim());
+                if (!ok && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Could not connect to ESP32')));
+                }
+              },
+            ),
+          ]),
+        ),
       );
+
+  // ── Main screen ──────────────────────────────────────────────────────────
 
   Widget _mainView(BridgeService bridge) => Column(children: [
         _statusBar(bridge),
-        const Divider(),
+        const Divider(height: 1),
         Expanded(child: _treadmillPanel(bridge)),
-        const Divider(),
+        const Divider(height: 1),
         _devicePanel(bridge),
       ]);
 
@@ -54,116 +95,155 @@ class _HomeScreenState extends State<HomeScreen> {
           bridge.connected ? Icons.fitness_center : Icons.link_off,
           color: bridge.connected ? Colors.green : Colors.grey,
         ),
-        title: Text(bridge.connectedDevice ?? 'No treadmill connected'),
+        title: Text(bridge.connectedDevice?.isNotEmpty == true
+            ? bridge.connectedDevice!
+            : bridge.connected
+                ? 'Connected (no treadmill)'
+                : 'No treadmill'),
         subtitle: Text('via ${bridge.connectionMode}'),
-        trailing: IconButton(
-          icon: const Icon(Icons.refresh),
-          onPressed: bridge.status,
-          tooltip: 'Refresh status',
-        ),
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: bridge.status),
+          IconButton(
+            icon: const Icon(Icons.link_off),
+            tooltip: 'Disconnect',
+            onPressed: () {
+              bridge.dispose();
+              // Re-create via provider would normally happen; for now reload
+            },
+          ),
+        ]),
       );
 
   Widget _treadmillPanel(BridgeService bridge) {
     final s = bridge.state;
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(children: [
         _metric('Speed', '${s.speedKmh.toStringAsFixed(1)} km/h'),
-        _metric('Distance', '${(s.distanceM / 1000).toStringAsFixed(2)} km'),
+        _metric('Distance', '${(s.distanceM / 1000).toStringAsFixed(3)} km'),
         _metric('Incline', '${s.inclinePct.toStringAsFixed(1)} %'),
         _metric('Elapsed', _formatElapsed(s.elapsedS)),
         const SizedBox(height: 24),
         _speedControl(bridge),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         _inclineControl(bridge),
-        const SizedBox(height: 12),
-        ElevatedButton.icon(
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          icon: const Icon(Icons.stop, color: Colors.white),
-          label: const Text('STOP', style: TextStyle(color: Colors.white)),
-          onPressed: bridge.stop,
+        const SizedBox(height: 20),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red,
+                foregroundColor: Colors.white),
+            icon: const Icon(Icons.stop),
+            label: const Text('STOP TREADMILL'),
+            onPressed: bridge.stop,
+          ),
         ),
       ]),
     );
   }
 
   Widget _metric(String label, String value) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 16)),
+          Text(value,
+              style:
+                  const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
         ]),
       );
 
-  Widget _speedControl(BridgeService bridge) {
-    final s = bridge.state;
-    return Row(children: [
-      const Text('Speed'),
-      const SizedBox(width: 8),
-      IconButton(
-        icon: const Icon(Icons.remove),
-        onPressed: () => bridge.setSpeed((s.speedKmh - 0.5).clamp(0, 25)),
-      ),
-      Text('${s.speedKmh.toStringAsFixed(1)}', style: const TextStyle(fontSize: 18)),
-      IconButton(
-        icon: const Icon(Icons.add),
-        onPressed: () => bridge.setSpeed((s.speedKmh + 0.5).clamp(0, 25)),
-      ),
-      const Text('km/h'),
-    ]);
-  }
+  Widget _speedControl(BridgeService bridge) => Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(width: 60, child: Text('Speed', textAlign: TextAlign.right)),
+          IconButton(
+            iconSize: 32,
+            icon: const Icon(Icons.remove_circle_outline),
+            onPressed: () =>
+                bridge.setSpeed((bridge.state.speedKmh - 0.5).clamp(0, 25)),
+          ),
+          SizedBox(
+            width: 64,
+            child: Text('${bridge.state.speedKmh.toStringAsFixed(1)}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          ),
+          IconButton(
+            iconSize: 32,
+            icon: const Icon(Icons.add_circle_outline),
+            onPressed: () =>
+                bridge.setSpeed((bridge.state.speedKmh + 0.5).clamp(0, 25)),
+          ),
+          const Text('km/h'),
+        ],
+      );
 
-  Widget _inclineControl(BridgeService bridge) {
-    final s = bridge.state;
-    return Row(children: [
-      const Text('Incline'),
-      const SizedBox(width: 8),
-      IconButton(
-        icon: const Icon(Icons.remove),
-        onPressed: () => bridge.setIncline((s.inclinePct - 0.5).clamp(-5, 15)),
-      ),
-      Text('${s.inclinePct.toStringAsFixed(1)}', style: const TextStyle(fontSize: 18)),
-      IconButton(
-        icon: const Icon(Icons.add),
-        onPressed: () => bridge.setIncline((s.inclinePct + 0.5).clamp(-5, 15)),
-      ),
-      const Text('%'),
-    ]);
-  }
+  Widget _inclineControl(BridgeService bridge) => Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(width: 60, child: Text('Incline', textAlign: TextAlign.right)),
+          IconButton(
+            iconSize: 32,
+            icon: const Icon(Icons.remove_circle_outline),
+            onPressed: () => bridge
+                .setIncline((bridge.state.inclinePct - 0.5).clamp(-5, 15)),
+          ),
+          SizedBox(
+            width: 64,
+            child: Text('${bridge.state.inclinePct.toStringAsFixed(1)}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          ),
+          IconButton(
+            iconSize: 32,
+            icon: const Icon(Icons.add_circle_outline),
+            onPressed: () => bridge
+                .setIncline((bridge.state.inclinePct + 0.5).clamp(-5, 15)),
+          ),
+          const Text('%'),
+        ],
+      );
 
   Widget _devicePanel(BridgeService bridge) => Padding(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
-            const Text('Treadmill', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Treadmill',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const Spacer(),
             TextButton.icon(
               icon: _scanning
-                  ? const SizedBox(width: 16, height: 16,
+                  ? const SizedBox(
+                      width: 16, height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.search),
               label: const Text('Scan'),
-              onPressed: () async {
-                setState(() => _scanning = true);
-                await bridge.scan();
-                await Future.delayed(const Duration(seconds: 8));
-                await bridge.fetchList();
-                if (mounted) setState(() => _scanning = false);
-              },
+              onPressed: _scanning
+                  ? null
+                  : () async {
+                      setState(() => _scanning = true);
+                      await bridge.scan();
+                      await Future.delayed(const Duration(seconds: 8));
+                      await bridge.fetchList();
+                      if (mounted) setState(() => _scanning = false);
+                    },
             ),
           ]),
           ...bridge.devices.map((d) => ListTile(
                 dense: true,
                 title: Text(d.displayName),
-                subtitle: Text('${d.proto}  ${d.rssi} dBm'),
+                subtitle: Text('${d.proto}  •  ${d.rssi} dBm'),
                 trailing: ElevatedButton(
                   child: const Text('Connect'),
                   onPressed: () => bridge.connectDevice(d.idx),
                 ),
               )),
           if (bridge.devices.isEmpty && !_scanning)
-            const Text('No devices found — tap Scan',
-                style: TextStyle(color: Colors.grey)),
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text('No devices — tap Scan',
+                  style: TextStyle(color: Colors.grey)),
+            ),
         ]),
       );
 
@@ -172,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final m = (s % 3600) ~/ 60;
     final sec = s % 60;
     return h > 0
-        ? '$h:${m.toString().padLeft(2,'0')}:${sec.toString().padLeft(2,'0')}'
-        : '${m.toString().padLeft(2,'0')}:${sec.toString().padLeft(2,'0')}';
+        ? '$h:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}'
+        : '${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
 }

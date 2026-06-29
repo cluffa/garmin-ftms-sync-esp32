@@ -1,17 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../models/treadmill_state.dart';
 
 /// Manages the connection to the ESP32 bridge.
-/// Transport: USB serial (Android, via platform channel) or WebSocket (WiFi).
+///
+/// Android: USB serial via BridgePlugin native channel (UsbManager, no lib).
+/// iOS:     WiFi/TCP via BridgePlugin native channel (NWConnection).
 class BridgeService extends ChangeNotifier {
-  static const _channel = MethodChannel('com.cluffa.garmin_ftms/bridge');
-  static const _events = EventChannel('com.cluffa.garmin_ftms/bridge_events');
+  static const _ch = MethodChannel('com.cluffa.garmin_ftms/bridge');
+  static const _ev = EventChannel('com.cluffa.garmin_ftms/bridge_events');
 
   StreamSubscription? _eventSub;
-  final _lineBuffer = StringBuffer();
+  final _lineBuf = StringBuffer();
 
   TreadmillState state = const TreadmillState();
   List<BridgeDevice> devices = [];
@@ -22,28 +25,44 @@ class BridgeService extends ChangeNotifier {
   final _stateCtrl = StreamController<TreadmillState>.broadcast();
   Stream<TreadmillState> get stateStream => _stateCtrl.stream;
 
+  bool get canUsb => Platform.isAndroid;
+
   Future<bool> connectUsb() async {
     try {
-      final ok = await _channel.invokeMethod<bool>('connectUsb') ?? false;
-      if (ok) {
-        connectionMode = 'usb';
-        connected = true;
-        _eventSub = _events.receiveBroadcastStream().listen(_onEvent);
-        notifyListeners();
-      }
+      final ok = await _ch.invokeMethod<bool>('connectUsb') ?? false;
+      if (ok) _onConnected('usb');
       return ok;
     } on PlatformException {
       return false;
     }
   }
 
+  Future<bool> connectWifi(String host, {int port = 9000}) async {
+    try {
+      final ok = await _ch.invokeMethod<bool>(
+            'connectWifi', {'host': host, 'port': port}) ??
+          false;
+      if (ok) _onConnected('wifi');
+      return ok;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  void _onConnected(String mode) {
+    connectionMode = mode;
+    connected = true;
+    _eventSub = _ev.receiveBroadcastStream().listen(_onEvent);
+    notifyListeners();
+  }
+
   void _onEvent(dynamic data) {
     if (data is! String) return;
-    _lineBuffer.write(data);
-    final buf = _lineBuffer.toString();
+    _lineBuf.write(data);
+    final buf = _lineBuf.toString();
     final lines = buf.split('\n');
-    _lineBuffer.clear();
-    if (lines.length > 1) _lineBuffer.write(lines.last);
+    _lineBuf.clear();
+    if (lines.length > 1) _lineBuf.write(lines.last);
     for (final line in lines.sublist(0, lines.length - 1)) {
       _handleLine(line.trim());
     }
@@ -77,7 +96,7 @@ class BridgeService extends ChangeNotifier {
   }
 
   Future<void> _send(String cmd) =>
-      _channel.invokeMethod('send', {'cmd': cmd});
+      _ch.invokeMethod('send', {'cmd': cmd});
 
   Future<void> scan() => _send('SCAN');
   Future<void> fetchList() => _send('LIST');
@@ -91,7 +110,7 @@ class BridgeService extends ChangeNotifier {
   void dispose() {
     _eventSub?.cancel();
     _stateCtrl.close();
-    _channel.invokeMethod('disconnect');
+    _ch.invokeMethod('disconnect');
     super.dispose();
   }
 }

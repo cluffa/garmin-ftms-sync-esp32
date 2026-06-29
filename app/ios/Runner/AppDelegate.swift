@@ -12,5 +12,8 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "BridgePlugin")!.messenger()
+    BridgePlugin.register(with: messenger)
+    GarminCiqPlugin.register(with: messenger)
   }
 }
