@@ -1,0 +1,19 @@
+menu "garmin-ftms-sync"
+
+    config BATTERY_CAL_MV
+        int "Battery voltage calibration offset (mV)"
+        default 0
+        help
+            Added to the measured battery millivolts to trim divider/ADC error.
+            Read the reported voltage over serial, compare to a multimeter, and
+            set the difference here.
+
+    config DISPLAY_IMPERIAL
+        bool "Display imperial units (mph / miles)"
+        default n
+        help
+            When enabled, the home screen shows speed in mph and distance in
+            miles instead of km/h and km. (Incline stays a percentage.)
+            Set via `idf.py menuconfig` or in sdkconfig.defaults.
+
+endmenu
