@@ -43,16 +43,19 @@
 #  include "esp_vfs_dev.h"        /* esp_vfs_dev_uart_use_driver() */
 #endif
 
+#include "esp_timer.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
-#define TAG      "serial_ctrl"
-#define BUF_SIZE 256
+#define TAG            "serial_ctrl"
+#define BUF_SIZE       256
+#define STATE_RATE_MS  1000   /* push state events at most once per second */
 
 static treadmill_state_t s_last_state;
 static bool              s_state_valid;
 static SemaphoreHandle_t s_tx_mutex;  /* serialize printf from multiple tasks */
+static int64_t           s_last_state_us;
 
 /* ---- output ------------------------------------------------------------ */
 
@@ -194,6 +197,9 @@ void serial_ctrl_push_state(const treadmill_state_t *s)
 {
     s_last_state  = *s;
     s_state_valid = true;
+    int64_t now = esp_timer_get_time();
+    if (now - s_last_state_us < STATE_RATE_MS * 1000LL) return;
+    s_last_state_us = now;
     char buf[256];
     snprintf(buf, sizeof buf,
              "{\"event\":\"state\",\"speed\":%.2f,\"distance\":%.1f"

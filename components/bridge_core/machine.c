@@ -82,6 +82,21 @@ static int gap_scan_cb(struct ble_gap_event *e, void *arg) {
     if (e->type != BLE_GAP_EVENT_DISC) return 0;
     struct ble_gap_disc_desc *d = &e->disc;
 
+    /* Scan response: update name for any already-known device at this address */
+    if (d->event_type == BLE_HCI_ADV_RPT_EVTYPE_SCAN_RSP) {
+        char name[FTMS_NAME_LEN];
+        adv_name(d->data, d->length_data, name, FTMS_NAME_LEN);
+        if (name[0]) {
+            for (int i = 0; i < s_ndev; i++) {
+                if (memcmp(s_devs[i].addr, d->addr.val, 6) == 0) {
+                    memcpy(s_devs[i].name, name, FTMS_NAME_LEN);
+                    break;
+                }
+            }
+        }
+        return 0;
+    }
+
     int proto;
     if (machine_ifit_is_ifit_adv(d->data, d->length_data))      /* prefer iFit */
         proto = MACHINE_PROTO_IFIT;
