@@ -12,6 +12,7 @@ int main(void) {
      * LE at [10,11]), incline +1.5% (raw 150=0x0096, LE at [12,13]). */
     uint8_t f[20] = {0};
     f[0]=0x00; f[1]=0x12; f[2]=0x01; f[3]=0x04;
+    f[5]=0x2e;                /* T6.5S model discriminator */
     f[10]=0x20; f[11]=0x03;   /* 0x0320 = 800 */
     f[12]=0x96; f[13]=0x00;   /* 0x0096 = 150 */
     assert(ifit_parse_data(f, sizeof f, &spd, &inc));
