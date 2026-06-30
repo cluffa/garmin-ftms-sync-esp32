@@ -2,8 +2,10 @@
 build/
 managed_components/
 sdkconfig
+sdkconfig.old
 dependencies.lock
 .venv/
+.cache/
 
 # macOS
 .DS_Store
