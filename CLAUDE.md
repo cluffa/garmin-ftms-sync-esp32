@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+> **Note to agents:** `AGENTS.md` and `GEMINI.md` are symlinks to this file. Always edit `CLAUDE.md` to update instructions.
+
 Project-specific notes that aren't obvious from the README or code.
 
 ## Building (local macOS quirk)
@@ -43,6 +45,23 @@ label. `machine_connect()` therefore tears down the *other* protocol
 (`machine_{ftms,ifit}_disconnect()`, which also cancels an in-flight connect)
 before connecting, and `on_evt()` suppresses auto-reconnect while the other
 protocol is connecting/connected. **Do not reintroduce simultaneous connections.**
+
+## Forward Data Stream (Treadmill -> Garmin)
+
+The primary implemented data stream broadcasts treadmill metrics to the watch:
+* `Treadmill (FTMS/iFit)` -> `ESP32 (BLE Central)` -> `Garmin Watch (BLE RSC Peripheral)`
+* The ESP32 connects to the treadmill, parses its proprietary or standard data frames into a generic `treadmill_state_t` via `bridge_core`, and then `garmin_rsc.c` handles exposing it as a standard BLE Running Speed and Cadence (RSC) sensor that any Garmin watch can pair with.
+
+## Reverse Data Stream (Garmin -> Treadmill) (TODO)
+
+There is a pending feature to automatically control treadmill speed based on Garmin workout pace targets via a reverse data stream: `Garmin Watch (ConnectIQ)` -> `Phone App` -> `ESP32` -> `Treadmill`.
+
+Implementation status across pending branches:
+1. **Watch (`garmin-data-field` branch):** A DataField app is scaffolded to send `workoutStatus` messages to the phone. **TODO:** It currently hardcodes `targetPace: 0.0`. It needs to actually read the pace from the Garmin workout API.
+2. **Phone App (`garmin-data-field` branch):** Uses `GarminCiqPlugin` to receive messages from the watch. **TODO:** `garmin_ciq_service.dart` must be updated to parse `type == 'workoutStatus'`, translate the target pace to km/h, and send a `speed` command to the ESP32.
+3. **Phone -> ESP32 Link (`feat/ble-nus-phone-control` branch):** Fully implemented. The Flutter app uses BLE NUS to send control strings (e.g. `speed 10.0`) to the ESP32.
+4. **ESP32 -> Treadmill:** Fully implemented. `nus_ctrl.c` and `ctrl_dispatch.c` parse incoming speed commands and apply them to the treadmill via FTMS/iFit.
+
 
 ## iFit / NordicTrack 6.5S (I_TL) protocol
 
