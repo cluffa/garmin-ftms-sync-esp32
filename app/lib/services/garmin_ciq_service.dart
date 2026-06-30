@@ -12,8 +12,12 @@ class GarminCiqService extends ChangeNotifier {
 
   bool _deviceConnected = false;
   String? _deviceName;
+  double? _targetSpeedLowKmh;
+  double? _targetSpeedHighKmh;
   bool get deviceConnected => _deviceConnected;
   String? get deviceName => _deviceName;
+  double? get targetSpeedLowKmh => _targetSpeedLowKmh;
+  double? get targetSpeedHighKmh => _targetSpeedHighKmh;
 
   GarminCiqService(this._bridge) {
     _channel.setMethodCallHandler(_onNativeCall);
@@ -31,6 +35,17 @@ class GarminCiqService extends ChangeNotifier {
         if (type == 'speed' && value != null) await _bridge.setSpeed(value);
         if (type == 'incline' && value != null) await _bridge.setIncline(value);
         if (type == 'stop') await _bridge.stop();
+        if (type == 'workoutStatus') {
+          final targetPace = (args?['targetPace'] as num?)?.toDouble();
+          final rawLow = (args?['targetPaceLow'] as num?)?.toDouble();
+          final rawHigh = (args?['targetPaceHigh'] as num?)?.toDouble();
+          _targetSpeedLowKmh = rawLow != null ? rawLow * 3.6 : null;
+          _targetSpeedHighKmh = rawHigh != null ? rawHigh * 3.6 : null;
+          if (targetPace != null && targetPace > 0) {
+            await _bridge.setSpeed(targetPace * 3.6);
+          }
+          notifyListeners();
+        }
       case 'onDeviceStatus':
         _deviceConnected = args?['connected'] as bool? ?? false;
         _deviceName = args?['name'] as String?;

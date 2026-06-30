@@ -44,7 +44,38 @@ class DataFieldView extends WatchUi.DataField {
             mLastSendTime = now;
             var msg = new Dictionary<String, Any>();
             msg.put("type", "workoutStatus");
-            msg.put("targetPace", 0.0); // Simple version
+            var targetPace = 0.0f;
+            if (info != null) {
+                if (info.currentSpeed != null) {
+                    targetPace = info.currentSpeed as Float;
+                }
+                if (info has :currentWorkoutStep && info.currentWorkoutStep != null) {
+                    var wStep = info.currentWorkoutStep;
+                    if (wStep has :step && wStep.step != null) {
+                        wStep = wStep.step;
+                    }
+                    if (wStep has :targetType && wStep.targetType == Activity.WORKOUT_STEP_TARGET_SPEED) {
+                        var low = null;
+                        if (wStep has :targetValueLow) {
+                            low = wStep.targetValueLow;
+                        }
+                        var high = null;
+                        if (wStep has :targetValueHigh) {
+                            high = wStep.targetValueHigh;
+                        }
+                        if (low != null) { msg.put("targetPaceLow", low as Float); }
+                        if (high != null) { msg.put("targetPaceHigh", high as Float); }
+                        if (low != null && high != null) {
+                            targetPace = ((low as Float) + (high as Float)) / 2.0f;
+                        } else if (low != null) {
+                            targetPace = low as Float;
+                        } else if (high != null) {
+                            targetPace = high as Float;
+                        }
+                    }
+                }
+            }
+            msg.put("targetPace", targetPace);
             if (info != null && info.currentSpeed != null) {
                 msg.put("currentSpeed", info.currentSpeed as Float);
             }
