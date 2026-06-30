@@ -43,6 +43,54 @@ source ~/esp/esp-idf/export.sh
 If a `boards/*/build` dir has a stale target, `battery.c` fails to compile
 (`adc_cali_create_scheme_curve_fitting` is S3-only). Fix: `idf.py set-target esp32s3`.
 
+## Tools
+
+### `tools/serial_cli.py` — serial command interface
+
+Interactive CLI over UART0 for driving the ESP32 without touching hardware.
+Auto-detects the port or takes one as an argument.
+
+```sh
+./tools/serial_cli.py                     # auto-detect
+./tools/serial_cli.py /dev/cu.usbserial-0001
+# commands: scan / list / connect <n> / speed <kmh> / incline <pct> / status
+```
+
+Requires `uv` (self-contained script, fetches `pyserial` automatically).
+
+### `tools/mtp_send_to_folder.c` — deploy .prg to watch over MTP
+
+The standard `mtp-sendfile` CLI sends to MTP root, which Garmin ignores — apps
+must live in `GARMIN/Apps`. This tool targets a specific parent folder ID.
+
+```sh
+# Build (requires libmtp: brew install libmtp)
+cc tools/mtp_send_to_folder.c -I/opt/homebrew/include -L/opt/homebrew/lib \
+   -lmtp -o tools/mtp_send_to_folder
+
+# Usage: find the GARMIN/Apps folder id first (mtp-folders), then:
+./tools/mtp_send_to_folder garmin_data_field/out/app.prg app.prg <parent_id>
+```
+
+### `test/mock/` — BLE test harnesses
+
+Python scripts for exercising the bridge without real hardware. See
+`test/mock/README.md` for full details.
+
+| Script | Role | Use for |
+|--------|------|---------|
+| `mock_treadmill.py` | FTMS peripheral | stand-in treadmill; accepts CP speed/incline writes |
+| `mock_watch.py` | RSC central | verify bridge's RSC peripheral output end-to-end |
+| `sensor_logger.py` | RSC+FTMS central | log all nearby sensors to console + CSV |
+
+All are self-contained `uv` scripts (no venv needed):
+
+```sh
+./test/mock/mock_treadmill.py
+./test/mock/mock_watch.py
+./test/mock/sensor_logger.py
+```
+
 ## Debugging without the button
 
 UART0 (`/dev/cu.usbserial-0001` on the Heltec) is **both** the console log and the
