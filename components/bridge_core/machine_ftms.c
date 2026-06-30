@@ -441,6 +441,16 @@ void machine_ftms_connect(const ftms_device_t *dev)
     }
 }
 
+void machine_ftms_disconnect(void)
+{
+    /* Cancel an in-flight connect too, not just an established link — otherwise
+     * switching during the connect window leaves a stray connect that completes
+     * later and clobbers the other protocol's data. */
+    if (s_connecting) { ble_gap_conn_cancel(); s_connecting = false; }
+    if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE)
+        ble_gap_terminate(s_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+}
+
 bool machine_ftms_connected(void)
 {
     return s_conn_handle != BLE_HS_CONN_HANDLE_NONE;

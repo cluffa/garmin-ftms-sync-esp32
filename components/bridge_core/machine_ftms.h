@@ -21,6 +21,10 @@ bool machine_ftms_is_ftms_adv(const uint8_t *data, uint8_t len);
 // Cancel any active scan, terminate any existing connection, then connect to dev.
 void machine_ftms_connect(const ftms_device_t *dev);
 
+// Terminate any existing FTMS connection (used by the facade to drop the other
+// protocol before switching, so its notifications can't clobber shared state).
+void machine_ftms_disconnect(void);
+
 // (Used internally / legacy; the facade machine.c owns the unified scan + list.)
 void machine_ftms_start_scan(void);
 int  machine_ftms_get_devices(ftms_device_t *out, int max);

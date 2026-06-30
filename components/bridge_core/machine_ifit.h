@@ -19,6 +19,7 @@ bool   machine_ifit_is_ifit_adv(const uint8_t *data, uint8_t len);
 void   machine_ifit_start_scan(void);
 int    machine_ifit_get_devices(ftms_device_t *out, int max);
 void   machine_ifit_connect(const ftms_device_t *dev);
+void   machine_ifit_disconnect(void);
 bool   machine_ifit_connected(void);
 bool   machine_ifit_connecting(void);
 int8_t machine_ifit_conn_rssi(void);

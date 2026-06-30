@@ -41,18 +41,55 @@ static const ble_uuid128_t IFIT_WRITE = BLE_UUID128_INIT(
 static const uint8_t IFIT_SVC_RAW[16] = {
     0x23,0xd1,0xbc,0xea,0x5f,0x78,0x23,0x15,0xde,0xef,0x12,0x14,0x33,0x15,0x00,0x00};
 
-/* NordicTrack T-series keepalive/poll, written to the write char each tick so
- * the treadmill keeps streaming (from qdomyos-zwift, the tseries5 branch). */
-static const uint8_t POLL1[] = {0xfe,0x02,0x17,0x03};
-static const uint8_t POLL2[] = {0x00,0x12,0x02,0x04,0x02,0x13,0x04,0x13,0x02,0x00,
-                                0x0d,0x13,0x96,0x31,0x00,0x00,0x40,0x10,0x00,0x80};
-static const uint8_t POLL3[] = {0xff,0x05,0x18,0x00,0x00,0x01,0xe9,0x00,0x00,0x00,
+/* NordicTrack 6.5S (T6.5S v81) init sequence — must be sent before streaming
+ * starts, one command per timer tick. (qdomyos-zwift proformtreadmill.cpp) */
+static const uint8_t INIT_00[] = {0xfe,0x02,0x08,0x02};
+static const uint8_t INIT_01[] = {0xff,0x08,0x02,0x04,0x02,0x04,0x02,0x04,0x81,0x87,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+static const uint8_t INIT_02[] = {0xff,0x08,0x02,0x04,0x02,0x04,0x04,0x04,0x80,0x88,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+static const uint8_t INIT_03[] = {0xff,0x08,0x02,0x04,0x02,0x04,0x04,0x04,0x88,0x90,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+static const uint8_t INIT_04[] = {0xfe,0x02,0x0a,0x02};
+static const uint8_t INIT_05[] = {0xff,0x0a,0x02,0x04,0x02,0x06,0x02,0x06,0x82,0x00,0x00,0x8a,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+static const uint8_t INIT_06[] = {0xff,0x0a,0x02,0x04,0x02,0x06,0x02,0x06,0x84,0x00,0x00,0x8c,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+static const uint8_t INIT_07[] = {0xff,0x08,0x02,0x04,0x02,0x04,0x02,0x04,0x95,0x9b,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+static const uint8_t INIT_08[] = {0xfe,0x02,0x2c,0x04};
+static const uint8_t INIT_09[] = {0x00,0x12,0x02,0x04,0x02,0x28,0x04,0x28,0x90,0x07,0x01,0xce,0xc4,0xb0,0xaa,0xa2,0xa8,0x94,0x96,0x96};
+static const uint8_t INIT_10[] = {0x01,0x12,0xac,0xa8,0xa2,0xba,0xd0,0xdc,0xce,0xfe,0x14,0x00,0x3a,0x52,0x78,0x64,0x86,0xa6,0xfc,0x18};
+static const uint8_t INIT_11[] = {0xff,0x08,0x32,0x4a,0xa0,0x88,0x02,0x00,0x00,0x44,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+static const uint8_t INIT_12[] = {0xfe,0x02,0x19,0x03};
+static const uint8_t INIT_13[] = {0x00,0x12,0x02,0x04,0x02,0x15,0x04,0x15,0x02,0x00,0x0f,0x00,0x10,0x00,0xd8,0x1c,0x48,0x00,0x00,0xe0};
+static const uint8_t INIT_14[] = {0xff,0x07,0x00,0x00,0x00,0x10,0x00,0x08,0x6e,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+static const uint8_t INIT_15[] = {0xfe,0x02,0x17,0x03};
+static const uint8_t INIT_16[] = {0x00,0x12,0x02,0x04,0x02,0x13,0x04,0x13,0x02,0x0c,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+static const uint8_t INIT_17[] = {0xff,0x05,0x00,0x80,0x00,0x00,0xa5,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+
+typedef struct { const uint8_t *d; uint16_t n; } ifit_cmd_t;
+static const ifit_cmd_t INIT_SEQ[] = {
+    {INIT_00,sizeof INIT_00},{INIT_01,sizeof INIT_01},{INIT_02,sizeof INIT_02},
+    {INIT_03,sizeof INIT_03},{INIT_04,sizeof INIT_04},{INIT_05,sizeof INIT_05},
+    {INIT_06,sizeof INIT_06},{INIT_07,sizeof INIT_07},{INIT_08,sizeof INIT_08},
+    {INIT_09,sizeof INIT_09},{INIT_10,sizeof INIT_10},{INIT_11,sizeof INIT_11},
+    {INIT_12,sizeof INIT_12},{INIT_13,sizeof INIT_13},{INIT_14,sizeof INIT_14},
+    {INIT_15,sizeof INIT_15},{INIT_16,sizeof INIT_16},{INIT_17,sizeof INIT_17},
+};
+#define N_INIT ((int)(sizeof INIT_SEQ / sizeof INIT_SEQ[0]))
+
+/* NordicTrack 6.5S keepalive poll — 6 phases, cycled after init completes.
+ * (qdomyos-zwift proformtreadmill.cpp, nordictrack_t65s_treadmill variant) */
+static const uint8_t POLL0[] = {0xfe,0x02,0x19,0x03};
+static const uint8_t POLL1[] = {0x00,0x12,0x02,0x04,0x02,0x15,0x04,0x15,0x02,0x00,
+                                0x0f,0x80,0x0a,0x41,0x00,0x00,0x00,0x00,0x00,0x00};
+static const uint8_t POLL2[] = {0xff,0x07,0x00,0x00,0x00,0x81,0x00,0x10,0x86,0x00,
                                 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
-static const uint8_t POLL4[] = {0xfe,0x02,0x19,0x03};
-static const uint8_t POLL5[] = {0x00,0x12,0x02,0x04,0x02,0x15,0x04,0x15,0x02,0x00,
-                                0x0f,0x80,0x08,0x40,0x00,0x00,0x00,0x00,0x00,0x00};
-static const uint8_t POLL6[] = {0xff,0x07,0x00,0x00,0x00,0x80,0x00,0x10,0x82,0x00,
+static const uint8_t POLL3[] = {0xfe,0x02,0x14,0x03};
+static const uint8_t POLL4[] = {0x00,0x12,0x02,0x04,0x02,0x10,0x04,0x10,0x02,0x00,
+                                0x0a,0x1b,0x94,0x30,0x00,0x00,0x40,0x50,0x00,0x80};
+static const uint8_t POLL5[] = {0xff,0x02,0x18,0x27,0x00,0x00,0x00,0x00,0x00,0x00,
                                 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+static const ifit_cmd_t POLL_SEQ[] = {
+    {POLL0,sizeof POLL0},{POLL1,sizeof POLL1},{POLL2,sizeof POLL2},
+    {POLL3,sizeof POLL3},{POLL4,sizeof POLL4},{POLL5,sizeof POLL5},
+};
+#define N_POLL ((int)(sizeof POLL_SEQ / sizeof POLL_SEQ[0]))
 
 /* ---- state -------------------------------------------------------------- */
 
@@ -65,6 +102,7 @@ static uint16_t         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t         s_notify_handle, s_write_handle, s_svc_end;
 static bool             s_connecting;
 static esp_timer_handle_t s_poll_timer;
+static int              s_poll_step;   /* 0..N_INIT-1 = init cmds, N_INIT+ = poll cycle */
 
 static ftms_device_t    s_devs[FTMS_MAX_DEVICES];
 static int              s_ndev;
@@ -117,17 +155,28 @@ static void poll_write(const uint8_t *d, uint16_t n) {
 
 static void poll_cb(void *arg) {
     (void)arg;
-    poll_write(POLL1, sizeof POLL1); poll_write(POLL2, sizeof POLL2);
-    poll_write(POLL3, sizeof POLL3); poll_write(POLL4, sizeof POLL4);
-    poll_write(POLL5, sizeof POLL5); poll_write(POLL6, sizeof POLL6);
+    if (s_poll_step < N_INIT) {
+        const ifit_cmd_t *c = &INIT_SEQ[s_poll_step];
+        poll_write(c->d, c->n);
+        ESP_LOGD(TAG, "init %d/%d", s_poll_step + 1, N_INIT);
+        s_poll_step++;
+        return;
+    }
+    int phase = (s_poll_step - N_INIT) % N_POLL;
+    const ifit_cmd_t *c = &POLL_SEQ[phase];
+    poll_write(c->d, c->n);
+    s_poll_step++;
 }
 
 static void poll_start(void) {
+    s_poll_step = 0;
     if (!s_poll_timer) {
         const esp_timer_create_args_t a = { .callback = poll_cb, .name = "ifit_poll" };
         esp_timer_create(&a, &s_poll_timer);
     }
-    esp_timer_start_periodic(s_poll_timer, 600000 /* 600 ms */);
+    /* ponytail: 500ms per step — init takes ~9s, poll cycle ~3s; fast enough for
+     * a treadmill display. Speed up if live data feels laggy. */
+    esp_timer_start_periodic(s_poll_timer, 500000 /* 500 ms */);
 }
 
 static void poll_stop(void) {
@@ -143,10 +192,25 @@ static void handle_notify(struct os_mbuf *om) {
     if (os_mbuf_copydata(om, 0, len, buf) != 0) return;
 
     float speed_mps, incline_pct;
-    if (!ifit_parse_data(buf, len, &speed_mps, &incline_pct)) return;
+    bool ok = ifit_parse_data(buf, len, &speed_mps, &incline_pct);
+    /* Raw-frame sniff for protocol debugging; silent at default INFO level.
+     * Bump this component to DEBUG (esp_log_level_set("machine_ifit", …)) to see
+     * whether the treadmill streams at all and whether frames parse. */
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, buf, len, ESP_LOG_DEBUG);
+    ESP_LOGD(TAG, "notify len=%u parse=%d", (unsigned)len, ok);
+    if (!ok) return;
 
     int64_t now = esp_timer_get_time();
-    if (s_last_rx_us) s_distance_m += speed_mps * (now - s_last_rx_us) / 1e6f;
+    if (s_last_rx_us) {
+        int64_t gap_us = now - s_last_rx_us;
+        if (gap_us > 30000000LL) {
+            /* Gap > 30 s: treadmill restarted while BLE stayed up — reset odometer. */
+            s_distance_m = 0;
+            ESP_LOGI(TAG, "gap %.1f s — distance reset", gap_us / 1e6f);
+        } else {
+            s_distance_m += speed_mps * (gap_us / 1e6f);
+        }
+    }
     s_last_rx_us = now;
 
     treadmill_state_t st = {
@@ -166,8 +230,9 @@ static int dsc_disc_cb(uint16_t conn, const struct ble_gatt_error *err,
     if (err->status != 0) return 0;
     if (ble_uuid_u16(&dsc->uuid.u) == BLE_GATT_DSC_CLT_CFG_UUID16) {
         uint8_t v[2] = {0x01, 0x00};
-        ble_gattc_write_flat(conn, dsc->handle, v, sizeof v, NULL, NULL);
-        ESP_LOGI(TAG, "iFit notifications enabled; starting poll");
+        int rc = ble_gattc_write_flat(conn, dsc->handle, v, sizeof v, NULL, NULL);
+        ESP_LOGI(TAG, "iFit CCCD write @%u rc=%d; notify_handle=%u; starting poll",
+                 dsc->handle, rc, s_notify_handle);
         poll_start();
     }
     return 0;
@@ -272,6 +337,13 @@ void machine_ifit_connect(const ftms_device_t *dev) {
     memcpy(a.val, dev->addr, 6);
     int rc = ble_gap_connect(s_own_addr_type, &a, 30000, NULL, gap_event_cb, NULL);
     if (rc != 0) { s_connecting = false; if (s_evt_cb) s_evt_cb(0); }
+}
+
+void machine_ifit_disconnect(void) {
+    /* Cancel an in-flight connect too (see machine_ftms_disconnect). */
+    if (s_connecting) { ble_gap_conn_cancel(); s_connecting = false; }
+    if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE)
+        ble_gap_terminate(s_conn_handle, 0x13 /* remote user term */);
 }
 
 bool machine_ifit_connected(void) { return s_conn_handle != BLE_HS_CONN_HANDLE_NONE; }

@@ -21,11 +21,12 @@
 #define NVS_NS  "ftms"
 #define NVS_KEY "last"
 
-static uint8_t       s_own_addr_type = BLE_OWN_ADDR_RANDOM;
-static ftms_device_t s_devs[FTMS_MAX_DEVICES];
-static int           s_ndev;
-static ftms_device_t s_pending;   /* device currently being connected */
-static bool          s_scanning;  /* suppress reconnect while scan is pending */
+static uint8_t          s_own_addr_type = BLE_OWN_ADDR_RANDOM;
+static ftms_device_t    s_devs[FTMS_MAX_DEVICES];
+static int              s_ndev;
+static ftms_device_t    s_pending;   /* device currently being connected */
+static bool             s_scanning;  /* suppress reconnect while scan is pending */
+static machine_state_cb s_data_cb;   /* stored so machine_connect can emit zero state */
 
 /* ---- NVS persistence of the last device (incl. protocol) ---------------- */
 
@@ -55,6 +56,10 @@ static void on_evt(int connected) {
                  s_pending.proto == MACHINE_PROTO_IFIT ? "iFit" : "FTMS");
     } else {
         if (s_scanning) return;  /* cancelled intentionally; scan will start */
+        /* A disconnect arriving while the other protocol is already
+         * connecting/connected is from an intentional switch (machine_connect
+         * tears down the old protocol) — don't auto-reconnect the old one. */
+        if (machine_connecting() || machine_connected()) return;
         ESP_LOGI(TAG, "disconnected — reconnecting to last");
         machine_try_last();      /* one re-attempt; its failure falls to scan */
     }
@@ -82,36 +87,38 @@ static int gap_scan_cb(struct ble_gap_event *e, void *arg) {
     if (e->type != BLE_GAP_EVENT_DISC) return 0;
     struct ble_gap_disc_desc *d = &e->disc;
 
-    /* Scan response: update name for any already-known device at this address */
-    if (d->event_type == BLE_HCI_ADV_RPT_EVTYPE_SCAN_RSP) {
-        char name[FTMS_NAME_LEN];
-        adv_name(d->data, d->length_data, name, FTMS_NAME_LEN);
-        if (name[0]) {
-            for (int i = 0; i < s_ndev; i++) {
-                if (memcmp(s_devs[i].addr, d->addr.val, 6) == 0) {
-                    memcpy(s_devs[i].name, name, FTMS_NAME_LEN);
-                    break;
-                }
-            }
-        }
-        return 0;
-    }
-
-    int proto;
+    /* Classify from whichever report carries the service UUID. Some treadmills
+     * put the UUID only in the scan response, not the primary advert, so we must
+     * try to classify BOTH event types — not just the primary advert — or those
+     * devices never get added (the "inconsistent discoverability" symptom). */
+    int proto = -1;
     if (machine_ifit_is_ifit_adv(d->data, d->length_data))      /* prefer iFit */
         proto = MACHINE_PROTO_IFIT;
     else if (machine_ftms_is_ftms_adv(d->data, d->length_data))
         proto = MACHINE_PROTO_FTMS;
-    else
-        return 0;
 
-    ftms_device_t dev;
-    dev.addr_type = d->addr.type;
-    memcpy(dev.addr, d->addr.val, 6);
-    dev.rssi = d->rssi;
-    dev.proto = (uint8_t)proto;
-    adv_name(d->data, d->length_data, dev.name, FTMS_NAME_LEN);
-    s_ndev = ftms_devlist_upsert(s_devs, s_ndev, &dev);
+    char name[FTMS_NAME_LEN];
+    adv_name(d->data, d->length_data, name, FTMS_NAME_LEN);
+
+    if (proto >= 0) {
+        ftms_device_t dev;
+        dev.addr_type = d->addr.type;
+        memcpy(dev.addr, d->addr.val, 6);
+        dev.rssi = d->rssi;
+        dev.proto = (uint8_t)proto;
+        memcpy(dev.name, name, FTMS_NAME_LEN);   /* may be empty; upsert keeps any
+                                                    name already captured */
+        s_ndev = ftms_devlist_upsert(s_devs, s_ndev, &dev);
+    } else if (name[0]) {
+        /* A name-only scan response (UUID was in the primary advert) refreshes
+         * the name of an already-known device. */
+        for (int i = 0; i < s_ndev; i++) {
+            if (memcmp(s_devs[i].addr, d->addr.val, 6) == 0) {
+                memcpy(s_devs[i].name, name, FTMS_NAME_LEN);
+                break;
+            }
+        }
+    }
     return 0;
 }
 
@@ -124,6 +131,7 @@ void machine_set_addr_type(uint8_t t) {
 }
 
 void machine_set_data_cb(machine_state_cb cb) {
+    s_data_cb = cb;
     machine_ftms_set_data_cb(cb);
     machine_ifit_set_data_cb(cb);
     machine_ftms_set_event_cb(on_evt);
@@ -148,14 +156,27 @@ void machine_start_scan(void) {
 int machine_get_devices(ftms_device_t *out, int max) {
     int n = s_ndev < max ? s_ndev : max;
     memcpy(out, s_devs, (size_t)n * sizeof(ftms_device_t));
-    ftms_devlist_sort(out, n);
+    /* ponytail: no RSSI sort — discovery order is stable, so the cursor in the
+     * pairing menu stays put. Re-enable ftms_devlist_sort if a sorted list is
+     * wanted once selection-stability is handled another way. */
     return n;
 }
 
 void machine_connect(const ftms_device_t *dev) {
     s_pending = *dev;
-    if (dev->proto == MACHINE_PROTO_IFIT) machine_ifit_connect(dev);
-    else                                  machine_ftms_connect(dev);
+    /* Zero the display immediately so the previous device's data doesn't stick
+     * while we wait for the first notification from the new device. */
+    if (s_data_cb) { treadmill_state_t z = {0}; s_data_cb(&z); }
+    /* Both adapters feed one shared state callback, so a lingering connection on
+     * the OTHER protocol would clobber this device's data (e.g. an FTMS sensor's
+     * notifications showing up under an iFit label). Drop it before connecting. */
+    if (dev->proto == MACHINE_PROTO_IFIT) {
+        machine_ftms_disconnect();
+        machine_ifit_connect(dev);
+    } else {
+        machine_ifit_disconnect();
+        machine_ftms_connect(dev);
+    }
 }
 
 void machine_try_last(void) {
