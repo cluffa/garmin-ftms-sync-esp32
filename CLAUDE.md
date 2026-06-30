@@ -4,6 +4,23 @@
 
 Project-specific notes that aren't obvious from the README or code.
 
+## Commands
+
+```sh
+# Firmware — build or build+flash
+./build.sh heltec-v3               # build only
+./build.sh heltec-v3 flash         # build + flash (auto-detects port)
+./build.sh heltec-v3 flash /dev/cu.usbserial-0001
+
+# Flutter phone app
+cd app && flutter run              # run on connected device
+cd app && flutter build apk        # release APK
+
+# Garmin Connect IQ data field (requires Connect IQ SDK + developer key)
+# CI uses blackshadev/garmin-connectiq-build-action; locally use monkeyc CLI:
+# monkeyc -f garmin_data_field/monkey.jungle -d fenix8solar51mm -o app.prg
+```
+
 ## Building (local macOS quirk)
 
 The ESP-IDF Python venv here is for **3.13**, but the system `python3` is 3.14, so
@@ -57,8 +74,8 @@ The primary implemented data stream broadcasts treadmill metrics to the watch:
 There is a pending feature to automatically control treadmill speed based on Garmin workout pace targets via a reverse data stream: `Garmin Watch (ConnectIQ)` -> `Phone App` -> `ESP32` -> `Treadmill`.
 
 Implementation status across pending branches:
-1. **Watch (`garmin-data-field` branch):** A DataField app is scaffolded to send `workoutStatus` messages to the phone. **TODO:** It currently hardcodes `targetPace: 0.0`. It needs to actually read the pace from the Garmin workout API.
-2. **Phone App (`garmin-data-field` branch):** Uses `GarminCiqPlugin` to receive messages from the watch. **TODO:** `garmin_ciq_service.dart` must be updated to parse `type == 'workoutStatus'`, translate the target pace to km/h, and send a `speed` command to the ESP32.
+1. **Watch (`garmin-data-field` branch):** DataField reads `Activity.Info.currentWorkoutStep` for target pace (m/s); falls back to `currentSpeed`. Sends `workoutStatus` with `targetPace`, `targetPaceLow`, `targetPaceHigh` every 5s.
+2. **Phone App (`garmin-data-field` branch):** `garmin_ciq_service.dart` handles `workoutStatus` messages — converts target pace from m/s to km/h and calls `_bridge.setSpeed()`; exposes `targetSpeedLowKmh`/`targetSpeedHighKmh` getters.
 3. **Phone -> ESP32 Link (`feat/ble-nus-phone-control` branch):** Fully implemented. The Flutter app uses BLE NUS to send control strings (e.g. `speed 10.0`) to the ESP32.
 4. **ESP32 -> Treadmill:** Fully implemented. `nus_ctrl.c` and `ctrl_dispatch.c` parse incoming speed commands and apply them to the treadmill via FTMS/iFit.
 
@@ -67,24 +84,13 @@ Implementation status across pending branches:
 
 The treadmill model is **NordicTrack 6.5S** (T6.5S v81), BLE name `I_TL`.
 
-Root cause of zero-notifications: the 6.5S requires a specific **18-command
-initialization sequence** written to the write char (0x1534) before it begins
-streaming, plus a model-specific 6-phase keepalive poll. Our original code
-used wrong poll sequences from a different T-series model and skipped the init
-entirely.
+Requires an **18-command init sequence** on write char `0x1534` before it streams,
+then a **6-phase keepalive poll** — both implemented in `machine_ifit.c` via the
+`s_poll_step` state machine (init takes ~9s, then poll cycles). Source:
+`qdomyos-zwift/proformtreadmill.cpp` (`nordictrack_t65s_treadmill` variant).
 
-Fixed in `machine_ifit.c` (2026-06-29):
-- `INIT_00`–`INIT_17`: init sequence from `qdomyos-zwift/proformtreadmill.cpp`,
-  sent one command per 500ms timer tick on connect
-- `POLL0`–`POLL5`: correct 6-phase keepalive for the 6.5S
-- `s_poll_step` state machine in `poll_cb`: runs through all 18 init commands
-  first (~9s), then cycles the 6 poll phases
-
-Notification frame format (unchanged, was already correct):
-- Header check: bytes 0-3 = `00 12 01 04`
+Notification frame format:
+- Header: bytes 0-3 = `00 12 01 04`
 - Speed: `(b[10] | b[11]<<8) / 100` → km/h
 - Incline: signed `(b[12] | b[13]<<8) / 100` → %
 - Frame length: exactly 20 bytes
-
-Source: https://github.com/cagnulein/qdomyos-zwift (`proformtreadmill.cpp`,
-`nordictrack_t65s_treadmill` variant)
