@@ -26,6 +26,10 @@ jobs:
           esp_idf_version: v5.4
           target: esp32s3
           path: boards/heltec-v3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-heltec-v3
+          path: boards/heltec-v3/build/garmin-ftms-sync.bin
 
   build-xiao-c6:
     runs-on: ubuntu-latest
@@ -40,6 +44,10 @@ jobs:
           esp_idf_version: v5.4
           target: esp32c6
           path: boards/xiao-c6
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-xiao-c6
+          path: boards/xiao-c6/build/garmin-ftms-sync.bin
 
   build-garmin:
     runs-on: ubuntu-latest
@@ -54,8 +62,44 @@ jobs:
           developerKey: ./developer_key.der
           outputPath: ./garmin_data_field/out/app.prg
           device: fenix8solar51mm
-      - name: Upload PRG
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: garmin-data-field-fenix8solar51mm
           path: ./garmin_data_field/out/app.prg
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+        working-directory: app
+      - run: flutter build apk --release
+        working-directory: app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+        working-directory: app
+      - run: flutter build ios --no-codesign --release
+        working-directory: app
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -r app/build/ios/iphoneos/Runner.app Payload/
+          zip -r app-unsigned.ipa Payload/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: app-unsigned.ipa
