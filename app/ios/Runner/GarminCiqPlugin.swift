@@ -1,13 +1,13 @@
 import Flutter
+
+#if canImport(ConnectIQ)
 import ConnectIQ
 
-// UUID of the CIQ data field app — must match the app-id in your .mc source
 private let kAppUUID = UUID(uuidString: "a3421fee-d6d4-4e69-8bcd-42ac52e81013")!
 private let kURLScheme = "garmin-ftms-sync"
 
 class GarminCiqPlugin: NSObject, IQDeviceEventDelegate, IQAppMessageDelegate {
     static weak var shared: GarminCiqPlugin?
-
     private let channel: FlutterMethodChannel
     private var devices: [IQDevice] = []
     private var apps: [IQApp] = []
@@ -25,7 +25,6 @@ class GarminCiqPlugin: NSObject, IQDeviceEventDelegate, IQAppMessageDelegate {
         ConnectIQ.sharedInstance().initialize(withUrlScheme: kURLScheme, uiOverrideDelegate: nil)
     }
 
-    // Called by SceneDelegate when GCM returns to the app via URL scheme
     func handleOpen(url: URL) {
         guard let parsed = ConnectIQ.sharedInstance().parseDeviceSelectionResponse(from: url) as? [IQDevice] else { return }
         ConnectIQ.sharedInstance().unregister(forAllDeviceEvents: self)
@@ -59,7 +58,6 @@ class GarminCiqPlugin: NSObject, IQDeviceEventDelegate, IQAppMessageDelegate {
         }
     }
 
-    // MARK: - IQDeviceEventDelegate
     func deviceStatusChanged(_ device: IQDevice, status: IQDeviceStatus) {
         channel.invokeMethod("onDeviceStatus", arguments: [
             "connected": status == .connected,
@@ -67,9 +65,40 @@ class GarminCiqPlugin: NSObject, IQDeviceEventDelegate, IQAppMessageDelegate {
         ])
     }
 
-    // MARK: - IQAppMessageDelegate — watch → phone commands
     func receivedMessage(_ message: Any, from app: IQApp) {
         guard let dict = message as? [String: Any] else { return }
         channel.invokeMethod("onCommand", arguments: dict)
     }
 }
+
+#else
+
+class GarminCiqPlugin: NSObject {
+    static weak var shared: GarminCiqPlugin?
+    private let channel: FlutterMethodChannel
+
+    static func register(with messenger: FlutterBinaryMessenger) {
+        let instance = GarminCiqPlugin(messenger: messenger)
+        shared = instance
+    }
+
+    init(messenger: FlutterBinaryMessenger) {
+        channel = FlutterMethodChannel(name: "com.cluffa.garmin_ftms/ciq",
+                                       binaryMessenger: messenger)
+        super.init()
+        channel.setMethodCallHandler(handle)
+    }
+
+    func handleOpen(url: URL) {}
+
+    private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        switch call.method {
+        case "selectDevice", "pushState":
+            result(nil)  // ponytail: ConnectIQ unavailable (simulator)
+        default:
+            result(FlutterMethodNotImplemented)
+        }
+    }
+}
+
+#endif
