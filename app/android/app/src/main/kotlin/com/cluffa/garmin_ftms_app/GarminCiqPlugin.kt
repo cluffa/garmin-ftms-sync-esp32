@@ -1,6 +1,8 @@
 package com.cluffa.garmin_ftms_app
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import com.garmin.android.connectiq.ConnectIQ
 import com.garmin.android.connectiq.IQApp
 import com.garmin.android.connectiq.IQDevice
@@ -10,7 +12,6 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
-// UUID of the CIQ data field app — must match the app-id in your .mc source
 private const val APP_UUID = "a3421fee-d6d4-4e69-8bcd-42ac52e81013"
 
 class GarminCiqPlugin(
@@ -20,23 +21,38 @@ class GarminCiqPlugin(
 
     private val channel = MethodChannel(messenger, "com.cluffa.garmin_ftms/ciq")
     private val connectIQ = ConnectIQ.getInstance(context, ConnectIQ.IQConnectType.WIRELESS)
+    private val handler = Handler(Looper.getMainLooper())
     private var sdkReady = false
     private var devices: List<IQDevice> = emptyList()
+
+    // Retry loading devices every 5s until at least one is found
+    private val retryLoad = object : Runnable {
+        override fun run() {
+            if (sdkReady && devices.isEmpty()) {
+                loadDevices()
+                handler.postDelayed(this, 5000)
+            }
+        }
+    }
 
     init {
         channel.setMethodCallHandler(this)
         connectIQ.initialize(context, true, object : ConnectIQ.ConnectIQListener {
             override fun onInitializeError(err: ConnectIQ.IQSdkErrorStatus) { sdkReady = false }
-            override fun onSdkReady() { sdkReady = true; loadDevices() }
-            override fun onSdkShutDown() { sdkReady = false }
+            override fun onSdkReady() {
+                sdkReady = true
+                loadDevices()
+            }
+            override fun onSdkShutDown() {
+                sdkReady = false
+                handler.removeCallbacks(retryLoad)
+            }
         })
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "selectDevice" -> {
-                // On Android the SDK handles device discovery internally via GCM;
-                // loadDevices() re-queries known paired devices
                 if (sdkReady) loadDevices()
                 result.success(null)
             }
@@ -66,17 +82,14 @@ class GarminCiqPlugin(
     private fun loadDevices() {
         try {
             devices = connectIQ.connectedDevices ?: emptyList()
-            val names = devices.map { mapOf("name" to it.friendlyName) }
-            channel.invokeMethod("onDevices", names)
+            channel.invokeMethod("onDevices", devices.map { mapOf("name" to it.friendlyName) })
             for (device in devices) {
-                // connectedDevices only returns devices that are already connected,
-                // so report status immediately rather than waiting for a change event.
                 channel.invokeMethod("onDeviceStatus", mapOf(
                     "connected" to true,
                     "name" to device.friendlyName,
                 ))
                 val app = IQApp(APP_UUID)
-                connectIQ.registerForAppEvents(device, app) { dev, _, message, _ ->
+                connectIQ.registerForAppEvents(device, app) { _, _, message, _ ->
                     (message?.firstOrNull() as? Map<*, *>)?.let { dict ->
                         channel.invokeMethod("onCommand", dict.mapKeys { it.key.toString() })
                     }
@@ -87,6 +100,9 @@ class GarminCiqPlugin(
                         "name" to dev.friendlyName,
                     ))
                 }
+            }
+            if (devices.isEmpty()) {
+                handler.postDelayed(retryLoad, 5000)
             }
         } catch (_: InvalidStateException) {
         }

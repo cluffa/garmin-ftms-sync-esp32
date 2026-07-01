@@ -14,10 +14,13 @@ class GarminCiqService extends ChangeNotifier {
   String? _deviceName;
   double? _targetSpeedLowKmh;
   double? _targetSpeedHighKmh;
+  double? _watchCurrentSpeedKmh;
+
   bool get deviceConnected => _deviceConnected;
   String? get deviceName => _deviceName;
   double? get targetSpeedLowKmh => _targetSpeedLowKmh;
   double? get targetSpeedHighKmh => _targetSpeedHighKmh;
+  double? get watchCurrentSpeedKmh => _watchCurrentSpeedKmh;
 
   GarminCiqService(this._bridge) {
     _channel.setMethodCallHandler(_onNativeCall);
@@ -39,8 +42,10 @@ class GarminCiqService extends ChangeNotifier {
           final targetPace = (args?['targetPace'] as num?)?.toDouble();
           final rawLow = (args?['targetPaceLow'] as num?)?.toDouble();
           final rawHigh = (args?['targetPaceHigh'] as num?)?.toDouble();
+          final rawCurrent = (args?['currentSpeed'] as num?)?.toDouble();
           _targetSpeedLowKmh = rawLow != null ? rawLow * 3.6 : null;
           _targetSpeedHighKmh = rawHigh != null ? rawHigh * 3.6 : null;
+          _watchCurrentSpeedKmh = rawCurrent != null ? rawCurrent * 3.6 : null;
           if (targetPace != null && targetPace > 0) {
             await _bridge.setSpeed(targetPace * 3.6);
           }
@@ -51,7 +56,6 @@ class GarminCiqService extends ChangeNotifier {
         _deviceName = args?['name'] as String?;
         notifyListeners();
       case 'onDevices':
-        // devices paired — status will follow via onDeviceStatus
         notifyListeners();
     }
   }

@@ -12,8 +12,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  bool _scanning = false;          // treadmill BLE scan (FTMS/iFit)
-  bool _bleScanning = false;       // ESP32 discovery scan
+  int _tab = 0;
+  bool _scanning = false;
+  bool _bleScanning = false;
   List<ScanResult> _bleResults = [];
   StreamSubscription? _bleScanSub;
 
@@ -24,9 +25,23 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('FTMS Sync')),
       body: SafeArea(
-        child: bridge.connectionMode == 'disconnected'
-            ? _connectView(bridge)
-            : _mainView(bridge, garmin),
+        child: IndexedStack(
+          index: _tab,
+          children: [
+            _treadmillTab(bridge),
+            _garminTab(garmin),
+          ],
+        ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _tab,
+        onTap: (i) => setState(() => _tab = i),
+        items: const [
+          BottomNavigationBarItem(
+              icon: Icon(Icons.fitness_center), label: 'Treadmill'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.watch), label: 'Garmin'),
+        ],
       ),
     );
   }
@@ -47,7 +62,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() => _bleScanning = false);
   }
 
-  // ── Connect screen ──────────────────────────────────────────────────────
+  // ── Treadmill tab ─────────────────────────────────────────────────────────
+
+  Widget _treadmillTab(BridgeService bridge) =>
+      bridge.connectionMode == 'disconnected'
+          ? _connectView(bridge)
+          : _mainView(bridge);
 
   Widget _connectView(BridgeService bridge) => Center(
         child: Padding(
@@ -76,8 +96,8 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: _bleScanning
                   ? const SizedBox(
                       width: 18, height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2,
-                          color: Colors.white))
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
                   : const Icon(Icons.bluetooth_searching),
               label: Text(_bleScanning ? 'Scanning…' : 'Scan for ESP32'),
               onPressed: _bleScanning ? null : () => _startBleDiscovery(bridge),
@@ -112,11 +132,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
 
-  // ── Main screen ──────────────────────────────────────────────────────────
-
-  Widget _mainView(BridgeService bridge, GarminCiqService garmin) => Column(children: [
+  Widget _mainView(BridgeService bridge) => Column(children: [
         _statusBar(bridge),
-        _garminBar(garmin),
         const Divider(height: 1),
         Expanded(child: _treadmillPanel(bridge)),
         const Divider(height: 1),
@@ -144,25 +161,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
       );
 
-  Widget _garminBar(GarminCiqService garmin) => ListTile(
-        dense: true,
-        leading: Icon(
-          Icons.watch,
-          color: garmin.deviceConnected ? Colors.blue : Colors.grey,
-          size: 20,
-        ),
-        title: Text(
-          garmin.deviceConnected
-              ? 'Garmin: ${garmin.deviceName ?? "connected"}'
-              : 'Garmin: not paired',
-          style: const TextStyle(fontSize: 14),
-        ),
-        trailing: TextButton(
-          onPressed: garmin.selectDevice,
-          child: const Text('Pair Watch'),
-        ),
-      );
-
   Widget _treadmillPanel(BridgeService bridge) {
     final s = bridge.state;
     return SingleChildScrollView(
@@ -181,8 +179,8 @@ class _HomeScreenState extends State<HomeScreen> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red,
-                foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red, foregroundColor: Colors.white),
             icon: const Icon(Icons.stop),
             label: const Text('STOP TREADMILL'),
             onPressed: bridge.stop,
@@ -192,20 +190,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _metric(String label, String value) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 16)),
-          Text(value,
-              style:
-                  const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        ]),
-      );
-
   Widget _speedControl(BridgeService bridge) => Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const SizedBox(width: 60, child: Text('Speed', textAlign: TextAlign.right)),
+          const SizedBox(
+              width: 60,
+              child: Text('Speed', textAlign: TextAlign.right)),
           IconButton(
             iconSize: 32,
             icon: const Icon(Icons.remove_circle_outline),
@@ -216,7 +206,8 @@ class _HomeScreenState extends State<HomeScreen> {
             width: 64,
             child: Text('${bridge.state.speedKmh.toStringAsFixed(1)}',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                style: const TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.bold)),
           ),
           IconButton(
             iconSize: 32,
@@ -231,24 +222,27 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _inclineControl(BridgeService bridge) => Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const SizedBox(width: 60, child: Text('Incline', textAlign: TextAlign.right)),
+          const SizedBox(
+              width: 60,
+              child: Text('Incline', textAlign: TextAlign.right)),
           IconButton(
             iconSize: 32,
             icon: const Icon(Icons.remove_circle_outline),
-            onPressed: () => bridge
-                .setIncline((bridge.state.inclinePct - 0.5).clamp(-5, 15)),
+            onPressed: () =>
+                bridge.setIncline((bridge.state.inclinePct - 0.5).clamp(-5, 15)),
           ),
           SizedBox(
             width: 64,
             child: Text('${bridge.state.inclinePct.toStringAsFixed(1)}',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                style: const TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.bold)),
           ),
           IconButton(
             iconSize: 32,
             icon: const Icon(Icons.add_circle_outline),
-            onPressed: () => bridge
-                .setIncline((bridge.state.inclinePct + 0.5).clamp(-5, 15)),
+            onPressed: () =>
+                bridge.setIncline((bridge.state.inclinePct + 0.5).clamp(-5, 15)),
           ),
           const Text('%'),
         ],
@@ -264,7 +258,8 @@ class _HomeScreenState extends State<HomeScreen> {
             TextButton.icon(
               icon: _scanning
                   ? const SizedBox(
-                      width: 16, height: 16,
+                      width: 16,
+                      height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.search),
               label: const Text('Scan'),
@@ -297,6 +292,60 @@ class _HomeScreenState extends State<HomeScreen> {
         ]),
       );
 
+  // ── Garmin tab ────────────────────────────────────────────────────────────
+
+  Widget _garminTab(GarminCiqService garmin) => SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Card(
+            child: ListTile(
+              leading: Icon(Icons.watch,
+                  color: garmin.deviceConnected ? Colors.blue : Colors.grey),
+              title: Text(garmin.deviceConnected
+                  ? (garmin.deviceName ?? 'Watch connected')
+                  : 'No watch connected'),
+              subtitle: const Text('via Garmin Connect Mobile'),
+              trailing: IconButton(
+                icon: const Icon(Icons.refresh),
+                tooltip: 'Refresh',
+                onPressed: garmin.selectDevice,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('From Watch',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 8),
+          _metric('Target Low',
+              garmin.targetSpeedLowKmh != null
+                  ? _formatPace(garmin.targetSpeedLowKmh!)
+                  : '--'),
+          _metric('Target High',
+              garmin.targetSpeedHighKmh != null
+                  ? _formatPace(garmin.targetSpeedHighKmh!)
+                  : '--'),
+          _metric('Activity Speed',
+              garmin.watchCurrentSpeedKmh != null
+                  ? '${garmin.watchCurrentSpeedKmh!.toStringAsFixed(2)} km/h'
+                  : '--'),
+        ]),
+      );
+
+  // ── Shared helpers ────────────────────────────────────────────────────────
+
+  Widget _metric(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(label,
+                  style: const TextStyle(color: Colors.grey, fontSize: 16)),
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.bold)),
+            ]),
+      );
+
   String _formatElapsed(int s) {
     final h = s ~/ 3600;
     final m = (s % 3600) ~/ 60;
@@ -308,7 +357,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _formatPace(double speedKmh) {
     if (speedKmh <= 0.1) return '--:-- /mi';
-    final paceMins = 96.5604 / speedKmh; // 60 * 1.60934
+    final paceMins = 96.5604 / speedKmh;
     final mins = paceMins.truncate();
     final secs = ((paceMins - mins) * 60).round();
     return '$mins:${secs.toString().padLeft(2, '0')} /mi';
