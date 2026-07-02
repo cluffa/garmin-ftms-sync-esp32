@@ -10,11 +10,9 @@ dependencies.lock
 # macOS
 .DS_Store
 
-# Host test binaries
-test/host/test_ftms_parse
-test/host/test_rsc_encode
-test/host/test_ftms_devlist
-test/host/test_ifit_parse
+# Host test binaries (compiled; keep the .c sources)
+test/host/test_*
+!test/host/test_*.c
 tools/mtp_send_to_folder
 
 # Garmin Connect IQ build output
@@ -23,3 +21,6 @@ garmin_data_field/out/
 # Python
 __pycache__/
 *.pyc
+
+# task-observer session log (local)
+skill-observations/
