@@ -1,6 +1,6 @@
 CORE = ../../components/bridge_core
 CFLAGS = -I$(CORE) -Wall -Wextra -std=c11
-TESTS = test_ftms_parse test_rsc_encode test_ftms_devlist test_ifit_parse
+TESTS = test_ftms_parse test_rsc_encode test_ftms_devlist test_ifit_parse test_ctrl_dispatch
 
 all: $(TESTS)
 	@for t in $(TESTS); do ./$$t || exit 1; done
@@ -15,6 +15,9 @@ test_ftms_devlist: test_ftms_devlist.c $(CORE)/ftms_devlist.c
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
 test_ifit_parse: test_ifit_parse.c $(CORE)/ifit_parse.c
+	$(CC) $(CFLAGS) -o $@ $^ -lm
+
+test_ctrl_dispatch: test_ctrl_dispatch.c $(CORE)/ctrl_dispatch.c $(CORE)/ftms_devlist.c
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
 clean:
