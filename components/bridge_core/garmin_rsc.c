@@ -138,6 +138,11 @@ void garmin_rsc_on_gap_event(struct ble_gap_event *event)
     case BLE_GAP_EVENT_SUBSCRIBE:
         if (event->subscribe.attr_handle == s_meas_handle) {
             s_subscribed = (event->subscribe.cur_notify != 0);
+            /* Notify the connection that actually subscribed to RSC — not
+             * whichever peripheral connected first. Otherwise if the phone
+             * connects before the watch, s_conn points at the phone and the
+             * watch's speed notifications go to the wrong link. */
+            if (s_subscribed) s_conn = event->subscribe.conn_handle;
             ESP_LOGI(TAG, "RSC Measurement %s",
                      s_subscribed ? "subscribed" : "unsubscribed");
         } else if (event->subscribe.attr_handle == s_batt_handle) {

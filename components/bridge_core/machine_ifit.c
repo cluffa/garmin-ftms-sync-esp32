@@ -421,6 +421,9 @@ bool machine_ifit_is_ifit_adv(const uint8_t *data, uint8_t len) { return adv_has
 
 bool machine_ifit_set_speed(float kmh) {
     if (!machine_ifit_connected()) return false;
+    /* Reject negatives: <0 matches neither poll-phase-2 branch (wedges the
+     * slot) and -1 aliases the REQ_SPEED_NONE sentinel. Stop is kmh==0. */
+    if (kmh < 0) return false;
     s_req_speed = kmh;
     return true;
 }
