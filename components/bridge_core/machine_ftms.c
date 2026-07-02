@@ -505,12 +505,19 @@ static bool cp_write(uint8_t opcode, uint8_t *param, uint8_t param_len)
 
 bool machine_ftms_set_speed(float kmh)
 {
+    /* Clamp before the uint16 cast: a negative or huge input would wrap to a
+     * garbage speed on a belt someone is standing on. 0–25 km/h covers any
+     * treadmill; use STOP for 0. */
+    if (kmh < 0) kmh = 0;
+    if (kmh > 25) kmh = 25;
     uint16_t val = (uint16_t)(kmh * 100.0f + 0.5f);
     return cp_write(FTMS_OP_SET_SPEED, (uint8_t *)&val, 2);
 }
 
 bool machine_ftms_set_incline(float pct)
 {
+    if (pct < -10) pct = -10;
+    if (pct > 25) pct = 25;
     int16_t val = (int16_t)(pct * 10.0f);
     return cp_write(FTMS_OP_SET_INCLINE, (uint8_t *)&val, 2);
 }

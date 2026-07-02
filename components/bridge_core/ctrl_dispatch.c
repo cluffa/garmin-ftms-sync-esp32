@@ -6,6 +6,30 @@
 #include <string.h>
 #include <stdlib.h>
 
+/* Copy src into dst escaping " and \ so an advert-supplied device name can't
+ * break the JSON we emit (the phone silently drops malformed lines). */
+static void json_escape(char *dst, size_t cap, const char *src)
+{
+    size_t o = 0;
+    for (size_t i = 0; src[i] && o + 2 < cap; i++) {
+        if (src[i] == '"' || src[i] == '\\') dst[o++] = '\\';
+        dst[o++] = src[i];
+    }
+    dst[o] = '\0';
+}
+
+/* Parse a full-token float; returns false on trailing garbage or empty input
+ * so a malformed "SPEED foo" doesn't silently command 0. */
+static bool parse_float(const char *s, float *out)
+{
+    char *end;
+    float v = strtof(s, &end);
+    while (*end == ' ') end++;
+    if (end == s || *end != '\0') return false;
+    *out = v;
+    return true;
+}
+
 static void cmd_scan(ctrl_tx_fn tx, void *ctx)
 {
     machine_start_scan();
@@ -20,9 +44,11 @@ static void cmd_list(ctrl_tx_fn tx, void *ctx)
     int pos = snprintf(buf, sizeof buf, "{\"cmd\":\"list\",\"devices\":[");
     for (int i = 0; i < n && pos < (int)sizeof(buf) - 80; i++) {
         const char *proto = devs[i].proto == MACHINE_PROTO_IFIT ? "iFit" : "FTMS";
+        char name[FTMS_NAME_LEN * 2];
+        json_escape(name, sizeof name, devs[i].name);
         pos += snprintf(buf + pos, sizeof(buf) - pos,
                         "%s{\"idx\":%d,\"name\":\"%s\",\"proto\":\"%s\",\"rssi\":%d}",
-                        i ? "," : "", i, devs[i].name, proto, devs[i].rssi);
+                        i ? "," : "", i, name, proto, devs[i].rssi);
     }
     snprintf(buf + pos, sizeof(buf) - pos, "]}");
     tx(buf, ctx);
@@ -70,9 +96,11 @@ static void cmd_status(ctrl_tx_fn tx, void *ctx)
     if (!conn || !dev) {
         snprintf(buf, sizeof buf, "{\"cmd\":\"status\",\"connected\":false}");
     } else {
+        char name[FTMS_NAME_LEN * 2];
+        json_escape(name, sizeof name, dev->name);
         snprintf(buf, sizeof buf,
                  "{\"cmd\":\"status\",\"connected\":true,\"name\":\"%s\"}",
-                 dev->name);
+                 name);
     }
     tx(buf, ctx);
 }
@@ -95,7 +123,17 @@ void ctrl_dispatch(const char *line, ctrl_tx_fn tx, void *ctx)
     if (strcmp(buf, "STATUS") == 0)       { cmd_status(tx, ctx); return; }
     if (strcmp(buf, "STOP") == 0)         { cmd_stop(tx, ctx); return; }
     if (strncmp(buf, "CONNECT ", 8) == 0) { cmd_connect(atoi(buf + 8), tx, ctx); return; }
-    if (strncmp(buf, "SPEED ", 6) == 0)   { cmd_speed((float)atof(buf + 6), tx, ctx); return; }
-    if (strncmp(buf, "INCLINE ", 8) == 0) { cmd_incline((float)atof(buf + 8), tx, ctx); return; }
+    if (strncmp(buf, "SPEED ", 6) == 0) {
+        float v;
+        if (parse_float(buf + 6, &v)) cmd_speed(v, tx, ctx);
+        else tx("{\"cmd\":\"speed\",\"ok\":false,\"err\":\"bad value\"}", ctx);
+        return;
+    }
+    if (strncmp(buf, "INCLINE ", 8) == 0) {
+        float v;
+        if (parse_float(buf + 8, &v)) cmd_incline(v, tx, ctx);
+        else tx("{\"cmd\":\"incline\",\"ok\":false,\"err\":\"bad value\"}", ctx);
+        return;
+    }
     tx("{\"event\":\"error\",\"msg\":\"unknown command\"}", ctx);
 }
